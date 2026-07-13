@@ -742,11 +742,23 @@ def build_calendar_events(df):
     )
 
     for (app_date, location, dap, app_code), group_df in grouped:
-        trials = sorted(set(group_df["Trial"].dropna().astype(str)))
+        trials = sorted(
+            set(
+                group_df["Trial"]
+                .dropna()
+                .astype(str)
+            )
+        )
+
+        trials_text = " · ".join(trials)
 
         events.append({
             "id": f"{app_date}|{location}|{dap}|{app_code}",
-            "title": f"{int(dap)} DAP ({app_code}) · {location}",
+            "title": (
+                f"{int(dap)} DAP ({app_code}) · "
+                f"{location} · "
+                f"{trials_text}"
+            ),
             "start": app_date.isoformat(),
             "allDay": True,
             "backgroundColor": "#BA0C2F",
