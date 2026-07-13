@@ -727,12 +727,12 @@ def create_excel_export(df):
 
 
 def build_calendar_events(df):
-    """Build one clickable all-day event per Date + Location + DAP + App."""
     if df.empty:
         return []
 
     temp = df.copy()
     temp["Date"] = pd.to_datetime(temp["Date"]).dt.date
+
     events = []
 
     grouped = temp.groupby(
@@ -757,8 +757,8 @@ def build_calendar_events(df):
                 "location": str(location),
                 "dap": int(dap),
                 "app_code": str(app_code),
-                "trials": trials,
-            },
+                "trials": trials
+            }
         })
 
     return events
@@ -771,15 +771,19 @@ def get_clicked_calendar_event(calendar_state):
     if calendar_state.get("callback") != "eventClick":
         return None
 
-    event_click = calendar_state.get("eventClick") or {}
-    return event_click.get("event")
+    return (
+        calendar_state
+        .get("eventClick", {})
+        .get("event")
+    )
 
 
 def render_calendar_event_details(df, event):
     if not event:
         return
 
-    props = event.get("extendedProps") or {}
+    props = event.get("extendedProps", {})
+
     selected_date = props.get("application_date") or event.get("start")
     selected_location = props.get("location")
     selected_dap = props.get("dap")
@@ -794,10 +798,10 @@ def render_calendar_event_details(df, event):
     temp["Date"] = pd.to_datetime(temp["Date"]).dt.date
 
     day_df = temp[
-        (temp["Date"] == selected_date_obj) &
-        (temp["Location"].astype(str) == str(selected_location)) &
-        (pd.to_numeric(temp["DAP"], errors="coerce") == int(selected_dap)) &
-        (temp["App"].astype(str) == str(selected_app))
+        (temp["Date"] == selected_date_obj)
+        & (temp["Location"].astype(str) == str(selected_location))
+        & (pd.to_numeric(temp["DAP"], errors="coerce") == int(selected_dap))
+        & (temp["App"].astype(str) == str(selected_app))
     ].copy()
 
     if day_df.empty:
@@ -805,15 +809,18 @@ def render_calendar_event_details(df, event):
         return
 
     totals_df = product_totals(day_df)
-    trials = sorted(set(day_df["Trial"].dropna().astype(str)))
 
-    st.markdown("---")
-    st.markdown(f"## {selected_date_obj.strftime('%B %d, %Y')}")
+    st.divider()
+
+    st.markdown(
+        f"## {selected_date_obj.strftime('%B %d, %Y')}"
+    )
+
     st.markdown(
         f"""
         <div class="info-line">
         <b>{selected_location}</b> · {int(selected_dap)} DAP ({selected_app}) ·
-        {len(trials)} trial(s) · {totals_df['Product'].nunique()} product(s)
+        {day_df['Trial'].nunique()} trial(s) · {totals_df['Product'].nunique()} product(s)
         </div>
         """,
         unsafe_allow_html=True
@@ -839,13 +846,185 @@ def render_calendar_event_details(df, event):
         st.markdown("### Trial Details")
 
         display_df = day_df[[
-            "Trial", "Treatment", "Product", "Amount", "Unit", "App", "DAP"
-        ]].sort_values(["Trial", "Treatment", "Product"])
+            "Trial",
+            "Treatment",
+            "Product",
+            "Amount",
+            "Unit",
+            "App",
+            "DAP"
+        ]].sort_values(
+            ["Trial", "Treatment", "Product"]
+        )
 
         st.dataframe(
             display_df,
             use_container_width=True,
             hide_index=True
+        )
+
+
+def render_interactive_calendar(df):
+    events = build_calendar_events(df)
+
+    if not events:
+        st.info("No saved trials yet.")
+        return
+
+    initial_date = min(
+        pd.to_datetime(df["Date"]).dt.date
+    ).isoformat()
+
+    options = {
+        "initialView": "dayGridMonth",
+        "initialDate": initial_date,
+        "height": "auto",
+        "contentHeight": "auto",
+        "aspectRatio": 1.45,
+        "editable": False,
+        "selectable": True,
+        "navLinks": True,
+        "dayMaxEvents": True,
+        "fixedWeekCount": False,
+        "showNonCurrentDates": True,
+        "displayEventTime": False,
+        "headerToolbar": {
+            "left": "today prev,next",
+            "center": "title",
+            "right": "dayGridMonth,timeGridWeek,listMonth"
+        },
+        "buttonText": {
+            "today": "Today",
+            "month": "Month",
+            "week": "Week",
+            "list": "List"
+        }
+    }
+
+    custom_css = """
+    .fc {
+        font-family: Arial, sans-serif;
+        color: #111827;
+    }
+
+    .fc .fc-toolbar {
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+    }
+
+    .fc .fc-toolbar-title {
+        font-size: 1.6rem;
+        font-weight: 900;
+        color: #111827;
+    }
+
+    .fc .fc-button {
+        background: #ffffff;
+        border: 1px solid #d1d5db;
+        color: #111827;
+        box-shadow: none;
+        font-weight: 700;
+        text-transform: capitalize;
+    }
+
+    .fc .fc-button:hover,
+    .fc .fc-button:focus {
+        background: #f3f4f6;
+        border-color: #9ca3af;
+        color: #111827;
+        box-shadow: none;
+    }
+
+    .fc .fc-button-primary:not(:disabled).fc-button-active,
+    .fc .fc-button-primary:not(:disabled):active,
+    .fc .fc-today-button {
+        background: #BA0C2F;
+        border-color: #BA0C2F;
+        color: #ffffff;
+    }
+
+    .fc .fc-col-header-cell-cushion {
+        color: #6b7280;
+        font-size: 0.78rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        text-decoration: none;
+        padding: 10px 4px;
+    }
+
+    .fc .fc-daygrid-day-number {
+        color: #111827;
+        font-weight: 800;
+        text-decoration: none;
+        padding: 8px;
+    }
+
+    .fc .fc-day-today {
+        background: #fff7f8 !important;
+    }
+
+    .fc .fc-daygrid-event {
+        border-radius: 7px;
+        padding: 4px 6px;
+        margin: 2px 4px;
+        cursor: pointer;
+        font-size: 0.78rem;
+        font-weight: 800;
+    }
+
+    .fc .fc-list-event {
+        cursor: pointer;
+    }
+
+    .fc-theme-standard td,
+    .fc-theme-standard th,
+    .fc-theme-standard .fc-scrollgrid {
+        border-color: #e5e7eb;
+    }
+
+    @media (max-width: 700px) {
+        .fc .fc-toolbar {
+            align-items: stretch;
+        }
+
+        .fc .fc-toolbar-chunk {
+            display: flex;
+            justify-content: center;
+        }
+
+        .fc .fc-toolbar-title {
+            font-size: 1.2rem;
+            text-align: center;
+        }
+
+        .fc .fc-button {
+            font-size: 0.76rem;
+            padding: 0.4rem 0.52rem;
+        }
+
+        .fc .fc-daygrid-event {
+            font-size: 0.66rem;
+            padding: 3px 4px;
+            margin: 1px 2px;
+        }
+    }
+    """
+
+    calendar_state = calendar(
+        events=events,
+        options=options,
+        custom_css=custom_css,
+        key="uga_master_calendar"
+    )
+
+    clicked_event = get_clicked_calendar_event(calendar_state)
+
+    if clicked_event:
+        render_calendar_event_details(df, clicked_event)
+    else:
+        st.caption(
+            "Click an application event to open products and trial details."
         )
 
 init_db()
@@ -858,18 +1037,30 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-tab_upload, tab_calendar, tab_date, tab_trials, tab_export = st.tabs([
-    "Upload Trial",
-    "Calendar",
-    "Application Date View",
-    "Saved Trials",
-    "Export"
-])
 
-with tab_upload:
+page = st.radio(
+    "Navigation",
+    [
+        "Upload Trial",
+        "Calendar",
+        "Application Date View",
+        "Saved Trials",
+        "Export"
+    ],
+    horizontal=True,
+    label_visibility="collapsed"
+)
+
+st.divider()
+
+
+if page == "Upload Trial":
     st.subheader("Upload ARM Spray/Seeding Plan PDF")
 
-    uploaded_file = st.file_uploader("Upload the ARM Spray/Seeding Plan PDF", type=["pdf"])
+    uploaded_file = st.file_uploader(
+        "Upload the ARM Spray/Seeding Plan PDF",
+        type=["pdf"]
+    )
 
     if uploaded_file:
         text, visual_lines = extract_pdf_text_and_lines(uploaded_file)
@@ -877,20 +1068,38 @@ with tab_upload:
 
         st.success("PDF loaded successfully")
 
-        trial_id = st.text_input("Trial ID", value=extracted_trial_id)
-        title = st.text_input("Trial Title", value=extracted_title)
+        trial_id = st.text_input(
+            "Trial ID",
+            value=extracted_trial_id
+        )
+
+        title = st.text_input(
+            "Trial Title",
+            value=extracted_title
+        )
 
         col1, col2 = st.columns(2)
 
         with col1:
-            location = st.text_input("Location / Field", placeholder="Example: Cotton Field")
+            location = st.text_input(
+                "Location / Field",
+                placeholder="Example: Cotton Field"
+            )
 
         with col2:
-            planting_date = st.date_input("Planting Date", value=date.today())
+            planting_date = st.date_input(
+                "Planting Date",
+                value=date.today()
+            )
 
         if trial_id and location and planting_date:
             rows = parse_arm_spray_plan(
-                visual_lines, text, location, planting_date, trial_id, title
+                visual_lines,
+                text,
+                location,
+                planting_date,
+                trial_id,
+                title
             )
 
             st.subheader("Detected Application Items")
@@ -912,14 +1121,20 @@ with tab_upload:
                         location,
                         planting_date
                     )
+
                     st.success("Trial saved successfully.")
+
             else:
                 st.error("No application items were detected.")
-                with st.expander("Show extracted PDF lines for debugging"):
+
+                with st.expander(
+                    "Show extracted PDF lines for debugging"
+                ):
                     for line in visual_lines[:120]:
                         st.text(line)
 
-with tab_calendar:
+
+elif page == "Calendar":
     st.subheader("Master Calendar")
 
     df = load_items()
@@ -928,197 +1143,25 @@ with tab_calendar:
         st.info("No saved trials yet.")
     else:
         df["Date"] = pd.to_datetime(df["Date"]).dt.date
+        render_interactive_calendar(df)
 
-        calendar_events = build_calendar_events(df)
 
-        initial_date = (
-            min(df["Date"]).isoformat()
-            if len(df["Date"].dropna()) > 0
-            else date.today().isoformat()
-        )
-
-        calendar_options = {
-            "initialView": "dayGridMonth",
-            "initialDate": initial_date,
-            "height": "auto",
-            "contentHeight": "auto",
-            "aspectRatio": 1.55,
-            "editable": False,
-            "selectable": True,
-            "navLinks": True,
-            "dayMaxEvents": True,
-            "fixedWeekCount": False,
-            "showNonCurrentDates": True,
-            "eventDisplay": "block",
-            "displayEventTime": False,
-            "headerToolbar": {
-                "left": "today prev,next",
-                "center": "title",
-                "right": "dayGridMonth,timeGridWeek,listMonth",
-            },
-            "buttonText": {
-                "today": "Today",
-                "month": "Month",
-                "week": "Week",
-                "list": "List",
-            },
-            "views": {
-                "timeGridWeek": {
-                    "allDaySlot": True,
-                    "slotMinTime": "06:00:00",
-                    "slotMaxTime": "20:00:00",
-                },
-                "listMonth": {
-                    "buttonText": "List",
-                },
-            },
-        }
-
-        calendar_css = """
-        .fc {
-            font-family: Arial, sans-serif;
-            color: #111827;
-        }
-
-        .fc .fc-toolbar {
-            gap: 12px;
-            flex-wrap: wrap;
-            margin-bottom: 1.25rem;
-        }
-
-        .fc .fc-toolbar-title {
-            font-size: 1.65rem;
-            font-weight: 900;
-            color: #111827;
-        }
-
-        .fc .fc-button {
-            background: #ffffff;
-            border: 1px solid #d1d5db;
-            color: #111827;
-            box-shadow: none;
-            font-weight: 700;
-            text-transform: capitalize;
-        }
-
-        .fc .fc-button:hover,
-        .fc .fc-button:focus {
-            background: #f3f4f6;
-            border-color: #9ca3af;
-            color: #111827;
-            box-shadow: none;
-        }
-
-        .fc .fc-button-primary:not(:disabled).fc-button-active,
-        .fc .fc-button-primary:not(:disabled):active {
-            background: #BA0C2F;
-            border-color: #BA0C2F;
-            color: #ffffff;
-        }
-
-        .fc .fc-today-button {
-            background: #BA0C2F;
-            border-color: #BA0C2F;
-            color: #ffffff;
-        }
-
-        .fc .fc-col-header-cell-cushion {
-            color: #6b7280;
-            font-size: 0.78rem;
-            font-weight: 800;
-            text-transform: uppercase;
-            text-decoration: none;
-            padding: 10px 4px;
-        }
-
-        .fc .fc-daygrid-day-number {
-            color: #111827;
-            font-weight: 800;
-            text-decoration: none;
-            padding: 8px;
-        }
-
-        .fc .fc-day-today {
-            background: #fff7f8 !important;
-        }
-
-        .fc .fc-daygrid-event {
-            border-radius: 7px;
-            padding: 4px 6px;
-            margin: 2px 4px;
-            cursor: pointer;
-            font-size: 0.78rem;
-            font-weight: 800;
-        }
-
-        .fc .fc-list-event {
-            cursor: pointer;
-        }
-
-        .fc .fc-list-event-title {
-            font-weight: 800;
-        }
-
-        .fc-theme-standard td,
-        .fc-theme-standard th,
-        .fc-theme-standard .fc-scrollgrid {
-            border-color: #e5e7eb;
-        }
-
-        @media (max-width: 700px) {
-            .fc .fc-toolbar {
-                align-items: stretch;
-            }
-
-            .fc .fc-toolbar-chunk {
-                display: flex;
-                justify-content: center;
-            }
-
-            .fc .fc-toolbar-title {
-                font-size: 1.25rem;
-                text-align: center;
-            }
-
-            .fc .fc-button {
-                font-size: 0.78rem;
-                padding: 0.42rem 0.58rem;
-            }
-
-            .fc .fc-daygrid-event {
-                font-size: 0.68rem;
-                padding: 3px 4px;
-                margin: 1px 2px;
-            }
-        }
-        """
-
-        calendar_state = calendar(
-            events=calendar_events,
-            options=calendar_options,
-            custom_css=calendar_css,
-            key="uga_master_calendar"
-        )
-
-        clicked_event = get_clicked_calendar_event(calendar_state)
-
-        if clicked_event:
-            render_calendar_event_details(df, clicked_event)
-        else:
-            st.caption(
-                "Click an application event to open products and trial details."
-            )
-
-with tab_date:
+elif page == "Application Date View":
     df = load_items()
 
     if df.empty:
         st.info("No saved applications yet.")
     else:
         dates = sorted(df["Date"].dropna().unique())
-        selected_date = st.selectbox("Select application date", dates)
 
-        day_df = df[df["Date"] == selected_date].sort_values(
+        selected_date = st.selectbox(
+            "Select application date",
+            dates
+        )
+
+        day_df = df[
+            df["Date"] == selected_date
+        ].sort_values(
             ["Location", "Trial", "Treatment", "Product"]
         )
 
@@ -1129,6 +1172,7 @@ with tab_date:
         date_location = day_df["Location"].iloc[0]
 
         st.markdown("## Application Sheet")
+
         st.markdown(
             f"""
             <div class="info-line">
@@ -1139,7 +1183,10 @@ with tab_date:
             unsafe_allow_html=True
         )
 
-        col1, col2 = st.columns([0.34, 0.66], gap="large")
+        col1, col2 = st.columns(
+            [0.34, 0.66],
+            gap="large"
+        )
 
         with col1:
             st.markdown("### Products to Separate")
@@ -1159,12 +1206,23 @@ with tab_date:
             st.markdown("### Trial Details")
 
             display_df = day_df[[
-                "Trial", "Treatment", "Product", "Amount", "Unit", "App", "DAP"
+                "Trial",
+                "Treatment",
+                "Product",
+                "Amount",
+                "Unit",
+                "App",
+                "DAP"
             ]].copy()
 
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            st.dataframe(
+                display_df,
+                use_container_width=True,
+                hide_index=True
+            )
 
-with tab_trials:
+
+elif page == "Saved Trials":
     st.subheader("Saved Trials")
 
     trials_df = load_trials()
@@ -1172,7 +1230,11 @@ with tab_trials:
     if trials_df.empty:
         st.info("No saved trials yet.")
     else:
-        st.dataframe(trials_df, use_container_width=True, hide_index=True)
+        st.dataframe(
+            trials_df,
+            use_container_width=True,
+            hide_index=True
+        )
 
         st.divider()
         st.subheader("Delete Trial Uploaded by Mistake")
@@ -1182,23 +1244,38 @@ with tab_trials:
             for _, row in trials_df.iterrows()
         }
 
-        selected = st.selectbox("Select trial to delete", list(options.keys()))
+        selected = st.selectbox(
+            "Select trial to delete",
+            list(options.keys())
+        )
+
         confirm = st.checkbox("Confirm deletion")
 
-        if st.button("Delete selected trial", disabled=not confirm):
+        if st.button(
+            "Delete selected trial",
+            disabled=not confirm
+        ):
             delete_trial(options[selected])
             st.success("Trial deleted successfully.")
+            st.rerun()
 
         st.divider()
         st.subheader("Reset Database")
 
-        reset_confirm = st.checkbox("Delete ALL saved data")
+        reset_confirm = st.checkbox(
+            "Delete ALL saved data"
+        )
 
-        if st.button("Delete everything", disabled=not reset_confirm):
+        if st.button(
+            "Delete everything",
+            disabled=not reset_confirm
+        ):
             reset_database()
             st.success("All saved data deleted.")
+            st.rerun()
 
-with tab_export:
+
+elif page == "Export":
     st.subheader("Export Excel")
 
     df = load_items()
@@ -1217,4 +1294,9 @@ with tab_export:
         )
 
         st.markdown("### Preview: Product Totals")
-        st.dataframe(product_totals_export(df), use_container_width=True, hide_index=True)
+
+        st.dataframe(
+            product_totals_export(df),
+            use_container_width=True,
+            hide_index=True
+        )
