@@ -4,3 +4,4 @@ openpyxl
 pymupdf
 xlsxwriter
 supabase
+streamlit-calendar
