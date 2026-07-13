@@ -1,5 +1,6 @@
 import streamlit as st
 import streamlit.components.v1 as components
+from streamlit_calendar import calendar
 import fitz
 import re
 import pandas as pd
@@ -725,136 +726,127 @@ def create_excel_export(df):
     return output
 
 
-def render_visual_calendar(calendar_data, year, month):
-    month_calendar = py_calendar.Calendar(firstweekday=6).monthdayscalendar(year, month)
-    month_name = pd.to_datetime(f"{year}-{month}-01").strftime("%B %Y")
+def build_calendar_events(df):
+    """Build one clickable all-day event per Date + Location + DAP + App."""
+    if df.empty:
+        return []
 
-    html = f"""
-    <style>
-    .calendar-wrapper {{
-        width: 100%;
-        padding: 10px 0 20px 0;
-        font-family: Arial, sans-serif;
-    }}
-    .calendar-title {{
-        font-size: 28px;
-        font-weight: 900;
-        color: #111827;
-        margin-bottom: 18px;
-    }}
-    .calendar-grid {{
-        display: grid;
-        grid-template-columns: repeat(7, 1fr);
-        gap: 10px;
-    }}
-    .calendar-header {{
-        font-size: 12px;
-        font-weight: 900;
-        color: #BA0C2F;
-        text-align: center;
-        padding: 6px 0;
-        text-transform: uppercase;
-    }}
-    .day-card {{
-        min-height: 110px;
-        border-radius: 14px;
-        border: 1px solid #e5e7eb;
-        background: #ffffff;
-        padding: 10px;
-        box-sizing: border-box;
-    }}
-    .day-card-active {{
-        min-height: 110px;
-        border-radius: 14px;
-        border: 1.5px solid #BA0C2F;
-        background: #fff7f8;
-        padding: 10px;
-        box-sizing: border-box;
-        box-shadow: 0 4px 10px rgba(186, 12, 47, 0.10);
-    }}
-    .day-number {{
-        font-size: 16px;
-        font-weight: 900;
-        color: #111827;
-        margin-bottom: 8px;
-    }}
-    .dap-pill {{
-        display: inline-block;
-        background: #BA0C2F;
-        color: white;
-        font-size: 11px;
-        font-weight: 900;
-        padding: 4px 7px;
-        border-radius: 999px;
-        margin-bottom: 5px;
-    }}
-    .field-text {{
-        color: #111827;
-        font-size: 12px;
-        font-weight: 800;
-        margin-bottom: 4px;
-    }}
-    .trial-text {{
-        color: #374151;
-        font-size: 11px;
-        line-height: 1.3;
-        word-break: break-word;
-    }}
-    .empty-card {{
-        min-height: 110px;
-        background: transparent;
-    }}
-    </style>
+    temp = df.copy()
+    temp["Date"] = pd.to_datetime(temp["Date"]).dt.date
+    events = []
 
-    <div class="calendar-wrapper">
-        <div class="calendar-title">📅 {month_name}</div>
-        <div class="calendar-grid">
-    """
+    grouped = temp.groupby(
+        ["Date", "Location", "DAP", "App"],
+        dropna=False,
+        sort=True
+    )
 
-    for day_name in ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]:
-        html += f"<div class='calendar-header'>{day_name}</div>"
+    for (app_date, location, dap, app_code), group_df in grouped:
+        trials = sorted(set(group_df["Trial"].dropna().astype(str)))
 
-    for week in month_calendar:
-        for day in week:
-            if day == 0:
-                html += "<div class='empty-card'></div>"
-                continue
+        events.append({
+            "id": f"{app_date}|{location}|{dap}|{app_code}",
+            "title": f"{int(dap)} DAP ({app_code}) · {location}",
+            "start": app_date.isoformat(),
+            "allDay": True,
+            "backgroundColor": "#BA0C2F",
+            "borderColor": "#BA0C2F",
+            "textColor": "#FFFFFF",
+            "extendedProps": {
+                "application_date": app_date.isoformat(),
+                "location": str(location),
+                "dap": int(dap),
+                "app_code": str(app_code),
+                "trials": trials,
+            },
+        })
 
-            current_date = date(year, month, day)
-            rows = calendar_data[calendar_data["Date"] == current_date]
+    return events
 
-            if rows.empty:
-                html += f"""
-                <div class="day-card">
-                    <div class="day-number">{day}</div>
-                </div>
-                """
-            else:
-                html += f"""
-                <div class="day-card-active">
-                    <div class="day-number">{day}</div>
-                """
 
-                for _, row in rows.iterrows():
-                    trials = row["Trials"]
-                    if len(trials) > 52:
-                        trials = trials[:52] + "..."
+def get_clicked_calendar_event(calendar_state):
+    if not isinstance(calendar_state, dict):
+        return None
 
-                    html += f"""
-                    <div class="dap-pill">{row["DAP"]}</div>
-                    <div class="field-text">{row["Location"]}</div>
-                    <div class="trial-text">{trials}</div>
-                    """
+    if calendar_state.get("callback") != "eventClick":
+        return None
 
-                html += "</div>"
+    event_click = calendar_state.get("eventClick") or {}
+    return event_click.get("event")
 
-    html += """
+
+def render_calendar_event_details(df, event):
+    if not event:
+        return
+
+    props = event.get("extendedProps") or {}
+    selected_date = props.get("application_date") or event.get("start")
+    selected_location = props.get("location")
+    selected_dap = props.get("dap")
+    selected_app = props.get("app_code")
+
+    if not selected_date:
+        return
+
+    selected_date_obj = pd.to_datetime(selected_date).date()
+
+    temp = df.copy()
+    temp["Date"] = pd.to_datetime(temp["Date"]).dt.date
+
+    day_df = temp[
+        (temp["Date"] == selected_date_obj) &
+        (temp["Location"].astype(str) == str(selected_location)) &
+        (pd.to_numeric(temp["DAP"], errors="coerce") == int(selected_dap)) &
+        (temp["App"].astype(str) == str(selected_app))
+    ].copy()
+
+    if day_df.empty:
+        st.warning("Application details could not be found.")
+        return
+
+    totals_df = product_totals(day_df)
+    trials = sorted(set(day_df["Trial"].dropna().astype(str)))
+
+    st.markdown("---")
+    st.markdown(f"## {selected_date_obj.strftime('%B %d, %Y')}")
+    st.markdown(
+        f"""
+        <div class="info-line">
+        <b>{selected_location}</b> · {int(selected_dap)} DAP ({selected_app}) ·
+        {len(trials)} trial(s) · {totals_df['Product'].nunique()} product(s)
         </div>
-    </div>
-    """
+        """,
+        unsafe_allow_html=True
+    )
 
-    components.html(html, height=760, scrolling=True)
+    col1, col2 = st.columns([0.38, 0.62], gap="large")
 
+    with col1:
+        st.markdown("### Products to Separate")
+
+        for _, row in totals_df.iterrows():
+            st.markdown(
+                f"""
+                <div class="product-card">
+                    <div class="product-name">{row['Product']}</div>
+                    <div class="product-amount">{row['Total Amount']:g} {row['Unit']}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+    with col2:
+        st.markdown("### Trial Details")
+
+        display_df = day_df[[
+            "Trial", "Treatment", "Product", "Amount", "Unit", "App", "DAP"
+        ]].sort_values(["Trial", "Treatment", "Product"])
+
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            hide_index=True
+        )
 
 init_db()
 
@@ -937,29 +929,185 @@ with tab_calendar:
     else:
         df["Date"] = pd.to_datetime(df["Date"]).dt.date
 
-        available_months = sorted({
-            d.strftime("%Y-%m") for d in df["Date"].dropna().unique()
-        })
+        calendar_events = build_calendar_events(df)
 
-        selected_month = st.selectbox(
-            "Select month",
-            available_months,
-            format_func=lambda x: pd.to_datetime(x + "-01").strftime("%B %Y")
+        initial_date = (
+            min(df["Date"]).isoformat()
+            if len(df["Date"].dropna()) > 0
+            else date.today().isoformat()
         )
 
-        year, month = map(int, selected_month.split("-"))
+        calendar_options = {
+            "initialView": "dayGridMonth",
+            "initialDate": initial_date,
+            "height": "auto",
+            "contentHeight": "auto",
+            "aspectRatio": 1.55,
+            "editable": False,
+            "selectable": True,
+            "navLinks": True,
+            "dayMaxEvents": True,
+            "fixedWeekCount": False,
+            "showNonCurrentDates": True,
+            "eventDisplay": "block",
+            "displayEventTime": False,
+            "headerToolbar": {
+                "left": "today prev,next",
+                "center": "title",
+                "right": "dayGridMonth,timeGridWeek,listMonth",
+            },
+            "buttonText": {
+                "today": "Today",
+                "month": "Month",
+                "week": "Week",
+                "list": "List",
+            },
+            "views": {
+                "timeGridWeek": {
+                    "allDaySlot": True,
+                    "slotMinTime": "06:00:00",
+                    "slotMaxTime": "20:00:00",
+                },
+                "listMonth": {
+                    "buttonText": "List",
+                },
+            },
+        }
 
-        month_dates = df[
-            (pd.to_datetime(df["Date"]).dt.year == year) &
-            (pd.to_datetime(df["Date"]).dt.month == month)
-        ].copy()
+        calendar_css = """
+        .fc {
+            font-family: Arial, sans-serif;
+            color: #111827;
+        }
 
-        calendar_data = calendar_summary(month_dates)
-        render_visual_calendar(calendar_data, year, month)
+        .fc .fc-toolbar {
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 1.25rem;
+        }
 
-        st.divider()
-        st.subheader("Calendar Table")
-        st.dataframe(calendar_data, use_container_width=True, hide_index=True)
+        .fc .fc-toolbar-title {
+            font-size: 1.65rem;
+            font-weight: 900;
+            color: #111827;
+        }
+
+        .fc .fc-button {
+            background: #ffffff;
+            border: 1px solid #d1d5db;
+            color: #111827;
+            box-shadow: none;
+            font-weight: 700;
+            text-transform: capitalize;
+        }
+
+        .fc .fc-button:hover,
+        .fc .fc-button:focus {
+            background: #f3f4f6;
+            border-color: #9ca3af;
+            color: #111827;
+            box-shadow: none;
+        }
+
+        .fc .fc-button-primary:not(:disabled).fc-button-active,
+        .fc .fc-button-primary:not(:disabled):active {
+            background: #BA0C2F;
+            border-color: #BA0C2F;
+            color: #ffffff;
+        }
+
+        .fc .fc-today-button {
+            background: #BA0C2F;
+            border-color: #BA0C2F;
+            color: #ffffff;
+        }
+
+        .fc .fc-col-header-cell-cushion {
+            color: #6b7280;
+            font-size: 0.78rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            text-decoration: none;
+            padding: 10px 4px;
+        }
+
+        .fc .fc-daygrid-day-number {
+            color: #111827;
+            font-weight: 800;
+            text-decoration: none;
+            padding: 8px;
+        }
+
+        .fc .fc-day-today {
+            background: #fff7f8 !important;
+        }
+
+        .fc .fc-daygrid-event {
+            border-radius: 7px;
+            padding: 4px 6px;
+            margin: 2px 4px;
+            cursor: pointer;
+            font-size: 0.78rem;
+            font-weight: 800;
+        }
+
+        .fc .fc-list-event {
+            cursor: pointer;
+        }
+
+        .fc .fc-list-event-title {
+            font-weight: 800;
+        }
+
+        .fc-theme-standard td,
+        .fc-theme-standard th,
+        .fc-theme-standard .fc-scrollgrid {
+            border-color: #e5e7eb;
+        }
+
+        @media (max-width: 700px) {
+            .fc .fc-toolbar {
+                align-items: stretch;
+            }
+
+            .fc .fc-toolbar-chunk {
+                display: flex;
+                justify-content: center;
+            }
+
+            .fc .fc-toolbar-title {
+                font-size: 1.25rem;
+                text-align: center;
+            }
+
+            .fc .fc-button {
+                font-size: 0.78rem;
+                padding: 0.42rem 0.58rem;
+            }
+
+            .fc .fc-daygrid-event {
+                font-size: 0.68rem;
+                padding: 3px 4px;
+                margin: 1px 2px;
+            }
+        }
+        """
+
+        calendar_state = calendar(
+            events=calendar_events,
+            options=calendar_options,
+            custom_css=calendar_css,
+            key="uga_master_calendar"
+        )
+
+        clicked_event = get_clicked_calendar_event(calendar_state)
+
+        if clicked_event:
+            render_calendar_event_details(df, clicked_event)
+        else:
+            st.caption(
+                "Click an application event to open products and trial details."
+            )
 
 with tab_date:
     df = load_items()
