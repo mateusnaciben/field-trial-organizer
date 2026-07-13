@@ -892,7 +892,7 @@ def render_interactive_calendar(df):
         "initialDate": initial_date,
         "height": "auto",
         "contentHeight": "auto",
-        "aspectRatio": 1.45,
+        "aspectRatio": 1.15,
         "editable": False,
         "selectable": True,
         "navLinks": True,
