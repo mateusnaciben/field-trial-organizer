@@ -891,7 +891,7 @@ def render_interactive_calendar(df):
         "headerToolbar": {
             "left": "today prev,next",
             "center": "title",
-            "right": "dayGridMonth,timeGridWeek,listMonth"
+            "right": "dayGridMonth,dayGridWeek,listMonth"
         },
         "buttonText": {
             "today": "Today",
