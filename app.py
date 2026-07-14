@@ -741,40 +741,32 @@ def build_calendar_events(df):
         sort=True
     )
 
-    for (app_date, location, dap, app_code), group_df in grouped:
-        trials = sorted(
-            set(
-                group_df["Trial"]
-                .dropna()
-                .astype(str)
-            )
-        )
-
-        trials_text = " · ".join(trials)
+    for event_number, ((app_date, location, dap, app_code), group_df) in enumerate(grouped):
+        trials = sorted(set(group_df["Trial"].dropna().astype(str)))
+        trial_text = " · ".join(trials)
+        event_class = f"trial-event-{event_number}"
 
         events.append({
             "id": f"{app_date}|{location}|{dap}|{app_code}",
-            "title": (
-                f"{int(dap)} DAP ({app_code}) · "
-                f"{location} · "
-                f"{trials_text}"
-            ),
+            "title": f"{int(dap)} DAP ({app_code}) · {location}",
             "start": app_date.isoformat(),
             "allDay": True,
             "backgroundColor": "#BA0C2F",
             "borderColor": "#BA0C2F",
             "textColor": "#FFFFFF",
+            "classNames": [event_class],
             "extendedProps": {
                 "application_date": app_date.isoformat(),
                 "location": str(location),
                 "dap": int(dap),
                 "app_code": str(app_code),
-                "trials": trials
+                "trials": trials,
+                "trial_text": trial_text,
+                "event_class": event_class
             }
         })
 
     return events
-
 
 def get_clicked_calendar_event(calendar_state):
     if not isinstance(calendar_state, dict):
@@ -890,9 +882,9 @@ def render_interactive_calendar(df):
     options = {
         "initialView": "dayGridMonth",
         "initialDate": initial_date,
-        "height": "auto",
-        "contentHeight": "auto",
-        "aspectRatio": 1.15,
+        "height": 900,
+        "contentHeight": 830,
+        "expandRows": True,
         "editable": False,
         "selectable": True,
         "navLinks": True,
@@ -901,6 +893,7 @@ def render_interactive_calendar(df):
         "fixedWeekCount": False,
         "showNonCurrentDates": True,
         "displayEventTime": False,
+        "eventDisplay": "block",
         "headerToolbar": {
             "left": "today prev,next",
             "center": "title",
@@ -913,6 +906,47 @@ def render_interactive_calendar(df):
             "list": "List"
         }
     }
+
+    description_css = []
+
+    for event in events:
+        event_class = event["extendedProps"]["event_class"]
+        trial_text = event["extendedProps"]["trial_text"]
+
+        safe_trial_text = (
+            trial_text
+            .replace("\", "\\")
+            .replace('"', '\"')
+            .replace("
+", " ")
+        )
+
+        css_rule = (
+            f'.fc .{event_class} .fc-event-main::after {{
+'
+            f'    content: "{safe_trial_text}";
+'
+            '    display: block;
+'
+            '    margin-top: 2px;
+'
+            '    font-size: 0.66rem;
+'
+            '    line-height: 1.2;
+'
+            '    font-weight: 500;
+'
+            '    color: rgba(255, 255, 255, 0.88);
+'
+            '    white-space: normal;
+'
+            '    overflow-wrap: anywhere;
+'
+            '}
+'
+        )
+
+        description_css.append(css_rule)
 
     custom_css = """
     .fc {
@@ -977,17 +1011,32 @@ def render_interactive_calendar(df):
         background: #fff7f8 !important;
     }
 
+    .fc .fc-daygrid-day-frame {
+        min-height: 120px;
+    }
+
     .fc .fc-daygrid-event {
         border-radius: 7px;
-        padding: 4px 6px;
-        margin: 2px 4px;
+        padding: 5px 7px;
+        margin: 3px 4px;
         cursor: pointer;
-        font-size: 0.78rem;
+        font-size: 0.76rem;
         font-weight: 800;
+        white-space: normal;
+    }
+
+    .fc .fc-daygrid-event .fc-event-main,
+    .fc .fc-daygrid-event .fc-event-title {
+        white-space: normal;
+        overflow: visible;
     }
 
     .fc .fc-list-event {
         cursor: pointer;
+    }
+
+    .fc .fc-list-event-title {
+        font-weight: 800;
     }
 
     .fc-theme-standard td,
@@ -1016,13 +1065,18 @@ def render_interactive_calendar(df):
             padding: 0.4rem 0.52rem;
         }
 
+        .fc .fc-daygrid-day-frame {
+            min-height: 105px;
+        }
+
         .fc .fc-daygrid-event {
             font-size: 0.66rem;
-            padding: 3px 4px;
-            margin: 1px 2px;
+            padding: 4px;
+            margin: 2px;
         }
     }
-    """
+    """ + "
+".join(description_css)
 
     calendar_state = calendar(
         events=events,
