@@ -915,35 +915,23 @@ def render_interactive_calendar(df):
 
         safe_trial_text = (
             trial_text
-            .replace("\", "\\")
-            .replace('"', '\"')
-            .replace("
-", " ")
+            .replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", " ")
         )
 
         css_rule = (
-            f'.fc .{event_class} .fc-event-main::after {{
-'
-            f'    content: "{safe_trial_text}";
-'
-            '    display: block;
-'
-            '    margin-top: 2px;
-'
-            '    font-size: 0.66rem;
-'
-            '    line-height: 1.2;
-'
-            '    font-weight: 500;
-'
-            '    color: rgba(255, 255, 255, 0.88);
-'
-            '    white-space: normal;
-'
-            '    overflow-wrap: anywhere;
-'
-            '}
-'
+            f'.fc .{event_class} .fc-event-main::after {{\n'
+            f'    content: "{safe_trial_text}";\n'
+            '    display: block;\n'
+            '    margin-top: 2px;\n'
+            '    font-size: 0.66rem;\n'
+            '    line-height: 1.2;\n'
+            '    font-weight: 500;\n'
+            '    color: rgba(255, 255, 255, 0.88);\n'
+            '    white-space: normal;\n'
+            '    overflow-wrap: anywhere;\n'
+            '}\n'
         )
 
         description_css.append(css_rule)
@@ -1075,8 +1063,7 @@ def render_interactive_calendar(df):
             margin: 2px;
         }
     }
-    """ + "
-".join(description_css)
+    """ + "\n".join(description_css)
 
     calendar_state = calendar(
         events=events,
